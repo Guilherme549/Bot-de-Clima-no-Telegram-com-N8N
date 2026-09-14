@@ -1,0 +1,393 @@
+{
+  "name": "Bot de Clima no Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Bot de Clima no Telegram\n\n1. Recebe a cidade no Telegram\n2. Normaliza o texto em `queue`\n3. Consulta a OpenWeather\n4. Responde a temperatura ou erro\n\nFormato esperado: `Cidade,UF,BR`\nEx.: `São Paulo,SP,BR`\n\nSegredos via env:\n- `OPENWEATHER_API_KEY`\n- `TELEGRAM_BOT_TOKEN`",
+        "height": 420,
+        "width": 300,
+        "color": 5
+      },
+      "id": "note-intro-bot-clima",
+      "name": "Notas do fluxo",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-280, 80]
+    },
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger-bot-clima",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [80, 280],
+      "webhookId": "bot-clima-telegram-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credential",
+          "name": "Telegram Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "field-chat-id",
+              "name": "chatId",
+              "value": "={{ $json.message.chat.id }}",
+              "type": "string"
+            },
+            {
+              "id": "field-queue",
+              "name": "queue",
+              "value": "={{ (() => { const raw = String($json.message?.text ?? '').trim(); const cleaned = raw.replace(/\\s+/g, ' ').replace(/\\s*,\\s*/g, ','); const parts = cleaned.split(',').map((part) => part.trim()).filter((part) => part !== ''); if (!parts.length) return ''; const city = parts[0].toLowerCase().split(' ').filter(Boolean).map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' '); const location = parts.slice(1).map((part) => part.toUpperCase()); return [city, ...location].join(','); })() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-definir-queue",
+      "name": "Definir queue",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [340, 280]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-queue-not-empty",
+              "leftValue": "={{ $json.queue }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-queue-not-command",
+              "leftValue": "={{ $json.queue }}",
+              "rightValue": "/",
+              "operator": {
+                "type": "string",
+                "operation": "notStartsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-consulta-cidade",
+      "name": "É consulta de cidade?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [600, 280]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.openweathermap.org/data/2.5/weather",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.queue }}"
+            },
+            {
+              "name": "units",
+              "value": "metric"
+            },
+            {
+              "name": "lang",
+              "value": "pt_br"
+            },
+            {
+              "name": "appid",
+              "value": "={{ $env.OPENWEATHER_API_KEY }}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "http-openweather",
+      "name": "Consultar OpenWeather",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 160],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-http-ok",
+              "leftValue": "={{ Number($json.cod) }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-city-name",
+              "leftValue": "={{ $json.name }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "cond-temp-exists",
+              "leftValue": "={{ $json.main != null && typeof $json.main.temp === 'number' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-resposta-valida",
+      "name": "Resposta válida?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1140, 160]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "field-resposta-clima",
+              "name": "resposta",
+              "value": "={{ `🌤️ A temperatura em ${$json.name} é de ${Math.round(Number($json.main.temp))}°C.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-mensagem-clima",
+      "name": "Montar mensagem de clima",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1420, 40]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "field-resposta-erro",
+              "name": "resposta",
+              "value": "❌ Cidade não encontrada. Use o formato Cidade,UF,BR (ex.: São Paulo,SP,BR).",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-mensagem-erro",
+      "name": "Mensagem cidade inválida",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1420, 280]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "field-resposta-ajuda",
+              "name": "resposta",
+              "value": "🌤️ Olá! Envie uma cidade no formato Cidade,UF,BR.\n\nExemplos:\nSão Paulo,SP,BR\nBelo Horizonte,MG,BR\nRecife,PE,BR",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-mensagem-ajuda",
+      "name": "Mensagem de ajuda",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [880, 420]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Definir queue').item.json.chatId }}",
+        "text": "={{ $json.resposta }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "telegram-send-message",
+      "name": "Enviar resposta Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1720, 160],
+      "webhookId": "bot-clima-telegram-send",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credential",
+          "name": "Telegram Bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Definir queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Definir queue": {
+      "main": [
+        [
+          {
+            "node": "É consulta de cidade?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É consulta de cidade?": {
+      "main": [
+        [
+          {
+            "node": "Consultar OpenWeather",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensagem de ajuda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consultar OpenWeather": {
+      "main": [
+        [
+          {
+            "node": "Resposta válida?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resposta válida?": {
+      "main": [
+        [
+          {
+            "node": "Montar mensagem de clima",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mensagem cidade inválida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar mensagem de clima": {
+      "main": [
+        [
+          {
+            "node": "Enviar resposta Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensagem cidade inválida": {
+      "main": [
+        [
+          {
+            "node": "Enviar resposta Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensagem de ajuda": {
+      "main": [
+        [
+          {
+            "node": "Enviar resposta Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "staticData": null,
+  "tags": [],
+  "active": false
+}
